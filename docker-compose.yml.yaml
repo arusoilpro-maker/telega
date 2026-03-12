@@ -1,0 +1,231 @@
+version: '3.8'
+
+services:
+  # База данных
+  mysql:
+    image: mysql:8.0
+    container_name: repair_mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${DB_NAME}
+      MYSQL_USER: ${DB_USER}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./database/migrations:/docker-entrypoint-initdb.d
+    networks:
+      - repair_network
+
+  # Redis для кэширования
+  redis:
+    image: redis:7-alpine
+    container_name: repair_redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - repair_network
+
+  # RabbitMQ для очередей
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: repair_rabbitmq
+    restart: always
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - repair_network
+
+  # Telegram Bot
+  telegram-bot:
+    build:
+      context: ./telegram-bot
+      dockerfile: Dockerfile
+    container_name: repair_bot
+    restart: always
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN}
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME}
+      - REDIS_URL=redis://redis:6379/0
+      - RABBITMQ_URL=amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672/
+    depends_on:
+      - mysql
+      - redis
+      - rabbitmq
+    volumes:
+      - ./telegram-bot:/app
+      - bot_logs:/app/logs
+    networks:
+      - repair_network
+
+  # Celery Worker
+  celery-worker:
+    build:
+      context: ./telegram-bot
+      dockerfile: Dockerfile
+    container_name: repair_celery
+    command: celery -A tasks.celery_app worker --loglevel=info
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - RABBITMQ_URL=amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672/
+    depends_on:
+      - redis
+      - rabbitmq
+    volumes:
+      - ./telegram-bot:/app
+    networks:
+      - repair_network
+
+  # PHP Web Admin
+  php-admin:
+    build:
+      context: ./web-admin
+      dockerfile: Dockerfile
+    container_name: repair_php
+    restart: always
+    environment:
+      - DB_HOST=mysql
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME}
+    volumes:
+      - ./web-admin:/var/www/html
+      - php_logs:/var/log/php
+    depends_on:
+      - mysql
+    networks:
+      - repair_network
+
+  # Nginx
+  nginx:
+    image: nginx:alpine
+    container_name: repair_nginx
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./nginx/sites:/etc/nginx/conf.d
+      - ./web-admin:/var/www/html
+      - nginx_logs:/var/log/nginx
+    depends_on:
+      - php-admin
+    networks:
+      - repair_network
+
+  # AI System
+  ai-system:
+    build:
+      context: ./ai-system
+      dockerfile: Dockerfile
+    container_name: repair_ai
+    restart: always
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - DB_HOST=mysql
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME}
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - ./ai-system:/app
+      - ai_models:/app/models
+    depends_on:
+      - mysql
+      - redis
+    networks:
+      - repair_network
+
+  # Analytics System
+  analytics:
+    build:
+      context: ./analytics
+      dockerfile: Dockerfile
+    container_name: repair_analytics
+    restart: always
+    environment:
+      - DB_HOST=mysql
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME}
+    volumes:
+      - ./analytics:/app
+      - analytics_reports:/app/reports
+    depends_on:
+      - mysql
+    networks:
+      - repair_network
+
+  # Prometheus (мониторинг)
+  prometheus:
+    image: prom/prometheus
+    container_name: repair_prometheus
+    restart: always
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - repair_network
+
+  # Grafana (визуализация)
+  grafana:
+    image: grafana/grafana
+    container_name: repair_grafana
+    restart: always
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD}
+    volumes:
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - repair_network
+
+  db:
+    image: postgres:15
+    container_name: specmaster_db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_USER=postgres
+      - POSTGRES_DB=specmaster
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - bot_network
+
+volumes:
+  mysql_data:
+  redis_data:
+  rabbitmq_data:
+  bot_logs:
+  php_logs:
+  nginx_logs:
+  ai_models:
+  analytics_reports:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  repair_network:
+    driver: bridge
