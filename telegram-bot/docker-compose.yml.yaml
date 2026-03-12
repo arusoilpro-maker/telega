@@ -201,6 +201,19 @@ services:
     networks:
       - repair_network
 
+  db:
+    image: postgres:15
+    container_name: specmaster_db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_USER=postgres
+      - POSTGRES_DB=specmaster
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - bot_network
+
 volumes:
   mysql_data:
   redis_data:
