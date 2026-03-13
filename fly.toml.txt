@@ -1,0 +1,4 @@
+[[services]]
+  # ... другие настройки
+  auto_start_machines = true
+  auto_stop_machines = false
