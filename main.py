@@ -15,6 +15,7 @@ async def main():
     await init_db()
     bot = Bot(token=BOT_TOKEN)
     dp = Dispatcher(storage=MemoryStorage())
+    bot = Bot(token=os.getenv("BOT_TOKEN"))
 
     dp.message.middleware(AuthMiddleware())
     dp.callback_query.middleware(AuthMiddleware())
@@ -32,3 +33,8 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+    
+async def main():
+    await init_db()
+    bot = Bot(token=BOT_TOKEN)  # Токен подставляется из config.py
+    # ... остальной код
